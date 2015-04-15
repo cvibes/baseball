@@ -7,9 +7,11 @@ public class BaseballElimination
     private int[][] g;
     private ST<String, Integer> idOf;
     private String[] nameOf;
-    private boolean[] tested;
     private boolean[] eliminated;
     private int maxWin;
+    private Bag<String> cert;
+    private String maxWinner;
+    private boolean[] trivial;
 
     public BaseballElimination(String filename) {
         In in     = new In(filename);
@@ -21,9 +23,10 @@ public class BaseballElimination
         idOf      = new ST<String, Integer>();
         g         = new int[num][num];
         nameOf    = new String[num];
-        tested    = new boolean[num];
         eliminated = new boolean[num];
         maxWin     = 0;
+        cert       = new Bag<String>();
+        trivial    = new boolean[num];
 
         for (int i = 0; i < num; i++) {
             String name = in.readString();
@@ -32,61 +35,64 @@ public class BaseballElimination
             wins[i]      = in.readInt();
             losses[i]    = in.readInt();
             remaining[i] = in.readInt();
-            if (wins[i] > maxWin) maxWin = wins[i];
+
+            if (wins[i] > maxWin) {
+                maxWin = wins[i];
+                maxWinner = name;
+            }
             
             for (int j = 0; j < num; j++)
                 g[i][j] = in.readInt();
         }
+
+        for (int i = 0; i < num; i++)
+            tryEliminate(i);
     }
 
-    public int numberOfTeams() {
-        return num;
+    private void tryEliminate(int i) {
+        if (wins[i] + remaining[i] < maxWin) {
+            eliminated[i] = true;
+            trivial[i] = true;
+        }
+        else if (num < 2)
+            eliminated[i] = true;
+        else if (num == 2)
+            eliminated[i] = wins[i] + remaining[i] < maxWin;
+        else {
+            int total = num + (num - 1) * (num - 2) / 2 + 2;
+            FlowNetwork n = buildFN(i, total);
+            FFPlus ff = new FFPlus(n, total - 2, total - 1);
+            eliminated[i] = !ff.allIsFull();
+            if (eliminated[i])
+                for (int k = 0; k < num; k++)
+                    if (k != i && ff.inCut(k))
+                        cert.add(nameOf[k]);
+        }
     }
 
-    public Iterable<String> teams() {
-        Bag<String> t = new Bag<String>();
-        return t;
+    private int getId(String team) {
+        if (!idOf.contains(team))
+            throw new IllegalArgumentException("Invalid team name");
+        return idOf.get(team);
     }
 
-    public int wins(String team) {
-        int id = idOf.get(team);
-        return wins[id];
-    }
+    public int numberOfTeams() { return num; }
 
-    public int losses(String team) {
-        int id = idOf.get(team);
-        return losses[id];
-    }
+    public Iterable<String> teams() { return idOf.keys(); }
 
-    public int remaining(String team) {
-        int id = idOf.get(team);
-        return remaining[id];
-    }
+    public int wins(String team) { return wins[getId(team)]; }
+
+    public int losses(String team) { return losses[getId(team)]; }
+
+    public int remaining(String team) { return remaining[getId(team)]; }
 
     public int against(String team1, String team2) {
-        int id1 = idOf.get(team1);
-        int id2 = idOf.get(team2);
-        return g[id1][id2];
+        return g[getId(team1)][getId(team2)];
     }
 
-    public boolean isEliminated(String team) {
-        int id = idOf.get(team);
-        if (tested[id]) return eliminated[id];
-        if (wins[id] + remaining[id] < maxWin) {
-            tested[id] = true;
-            eliminated[id] = false;
-            return false;
-        }
+    public boolean isEliminated(String team) { return eliminated[getId(team)]; }
 
-        if (num < 2) return false;
-        if (num == 2) return wins[id] + remaining[id] < maxWin;
-        FlowNetwork n = buildFN(id);
-        StdOut.printf("%s\n", n.toString());
-        return false;
-    }
-
-    private FlowNetwork buildFN(int id) {
-        int total = num + (num - 1) * (num - 2) / 2 + 2;
+    private FlowNetwork buildFN(int id, int total) {
         int s = total - 2;
         int t = total - 1;
         FlowNetwork n = new FlowNetwork(total);
@@ -113,14 +119,32 @@ public class BaseballElimination
     }
 
     public Iterable<String> certificateOfElimination(String team) {
-        Bag<String> s = new Bag<String>();
-        return s;
+        if (isEliminated(team)) {
+            int id = getId(team);
+            if (trivial[id]) {
+                Bag<String> w = new Bag<String>();
+                w.add(maxWinner);
+                return w;
+            }
+            else
+                return cert;
+        }
+        else return null;
     }
 
     public static void main(String[] args) {
-        BaseballElimination be = new BaseballElimination(args[0]);
-        StdOut.printf("%d\n", be.numberOfTeams());
-        StdOut.printf("\n\n");
-        be.isEliminated("Atlanta");
+        BaseballElimination division = new BaseballElimination(args[0]);
+        for (String team : division.teams()) {
+            if (division.isEliminated(team)) {
+                StdOut.print(team + " is eliminated by the subset R = { ");
+                for (String t : division.certificateOfElimination(team)) {
+                    StdOut.print(t + " ");
+                }
+                StdOut.println("}");
+            }
+            else {
+                StdOut.println(team + " is not eliminated");
+            }
+        }
     }
 }
